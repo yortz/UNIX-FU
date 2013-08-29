@@ -1,6 +1,7 @@
 require 'socket'
 
 class MiniUnicorn
+  NUM_WORKERS = 4
   def initialize(port=8080)
     #socket(2)
     @listener = Socket.new(:INET, :STREAM)
@@ -13,6 +14,14 @@ class MiniUnicorn
   end
 
   def start
+    NUM_WORKERS.times do
+      fork {
+        worker_loop
+      }
+    end
+  end
+
+  def worker_loop
     loop do
       connection, _ = @listener.accept
       connection.write(connection.read)
