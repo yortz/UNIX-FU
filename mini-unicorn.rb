@@ -24,11 +24,11 @@ class MiniUnicorn
         worker_loop
       }
     end
+    sleep
   end
 
   $PROGRAM_NAME = "MiniUnicorn Master"
 
-  sleep
 
   def load_app
     rackup_file = 'config.ru'
