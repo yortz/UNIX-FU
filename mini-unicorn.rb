@@ -4,7 +4,10 @@ require 'rack/builder'
 require 'http_tools'
 
 class MiniUnicorn
+
   NUM_WORKERS = 4
+  CHILD_PIDS = []
+
   def initialize(port=8080)
     #socket(2)
     @listener = Socket.new(:INET, :STREAM)
@@ -18,17 +21,55 @@ class MiniUnicorn
 
   def start
     load_app
-    NUM_WORKERS.times do |num|
-      fork {
-        $PROGRAM_NAME = "MiniUnicorn Worker #{num}"
-        worker_loop
-      }
-    end
+    spawn_workers
+    trap_signals
+    set_title
     sleep
   end
 
-  $PROGRAM_NAME = "MiniUnicorn Master"
+  def trap_signals
+    at_exit {
 
+      CHILD_PIDS.each do |cpid|
+        Process.waitpid(cpid, :WNOHANG)
+        Proces.kill[:INT, cpid]
+      end
+
+      # Once it sends the signal sleep the child processes to give them time to tear down
+      # and wait to see if the child processes are dead.
+      # If the child process to kill it's still alive returns immediately so it's non blocking
+      # then terminate the child process forcefully so it can exit and all child processes are tore down.
+
+      sleep 5
+      CHILD_PIDS.each do |cpid|
+        begin
+          Process.waitpid(cpid, :WNOHANG)
+          Proces.kill[:INT, cpid]
+        rescue Errno::ECHILD
+        end
+      end
+    }
+  end
+
+  def set_title
+    $PROGRAM_NAME = "MiniUnicorn Master"
+  end
+
+  def spawn_workers
+    NUM_WORKERS.times do |num|
+      CHILD_PIDS << fork {
+        $PROGRAM_NAME = "MiniUnicorn Worker #{num}"
+        trap_child_signals
+        worker_loop
+      }
+    end
+  end
+
+  def trap_child_signals
+    #Signal.trap(:INT) {
+      #@should_exit = true
+    #}
+  end
 
   def load_app
     rackup_file = 'config.ru'
