@@ -7,6 +7,7 @@ class MiniUnicorn
 
   NUM_WORKERS = 4
   CHILD_PIDS = []
+  SIGNAL_QUEUE = []
 
   def initialize(port=8080)
     #socket(2)
@@ -24,12 +25,22 @@ class MiniUnicorn
     spawn_workers
     trap_signals
     set_title
-    sleep
+
+    loop do
+      case SIGNAL_QUEUE.shift
+      when :INT, :QUIT, :TERM
+        shutdown
+    end
   end
 
   def trap_signals
-    at_exit {
+    [:INT, :QUIT, :TERM].each do |sig|
+      Signal.trap(sig) { SIGNAL_QUEUE << sig }
+    end
+  end
 
+  def shutdown
+    at_exit {
       CHILD_PIDS.each do |cpid|
         Process.waitpid(cpid, :WNOHANG)
         Proces.kill[:INT, cpid]
