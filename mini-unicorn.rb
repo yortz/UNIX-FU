@@ -21,5 +21,9 @@ class MiniUnicorn
   end
 end
 
+
+# $:> ruby mini-unicorn.rb
+# $:> echo foo | nc localhost 8080
+
 server = MiniUnicorn.new
 server.start
