@@ -1,6 +1,7 @@
 require 'socket'
 require 'rack'
 require 'rack/builder'
+require 'http_tools'
 
 class MiniUnicorn
   NUM_WORKERS = 4
@@ -36,14 +37,27 @@ class MiniUnicorn
 
   def worker_loop
     loop do
-
-      # parse HTTP
-      # call the rack app
-      # builde the response
-      # parse the response
-
       connection, _ = @listener.accept
-      connection.write(connection.read)
+
+      # read = lazy read
+      # it blocks until it gets EOF
+      #
+      # readpartial = greedy read
+
+      raw_request = connection.readpartial(4096)
+
+      parser = HTTPTools::Parser.new
+      parser.on(:finish) do
+        env = parser.env.merge!("rack.multiprocess" => true)
+        status, header, body = @app.call(env)
+
+        header["Connection"] = "close"
+        connection.write HTTPTools::Builder.response(status, header)
+        body.each {|chunk| connection.write chunk }
+        body.close if body.respond_to?(:close)
+      end
+
+      parser << raw_request
       connection.close
     end
   end
