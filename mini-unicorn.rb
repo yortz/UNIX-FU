@@ -1,4 +1,6 @@
 require 'socket'
+require 'rack'
+require 'rack/builder'
 
 class MiniUnicorn
   NUM_WORKERS = 4
@@ -14,6 +16,7 @@ class MiniUnicorn
   end
 
   def start
+    load_app
     NUM_WORKERS.times do |num|
       fork {
         $PROGRAM_NAME = "MiniUnicorn Worker #{num}"
@@ -26,8 +29,19 @@ class MiniUnicorn
 
   sleep
 
+  def load_app
+    rackup_file = 'config.ru'
+    @app, options = Rack::Builder.parse_file(rackup_file)
+  end
+
   def worker_loop
     loop do
+
+      # parse HTTP
+      # call the rack app
+      # builde the response
+      # parse the response
+
       connection, _ = @listener.accept
       connection.write(connection.read)
       connection.close
