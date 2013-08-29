@@ -14,12 +14,17 @@ class MiniUnicorn
   end
 
   def start
-    NUM_WORKERS.times do
+    NUM_WORKERS.times do |num|
       fork {
+        $PROGRAM_NAME = "MiniUnicorn Worker #{num}"
         worker_loop
       }
     end
   end
+
+  $PROGRAM_NAME = "MiniUnicorn Master"
+
+  sleep
 
   def worker_loop
     loop do
