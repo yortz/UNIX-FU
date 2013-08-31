@@ -8,6 +8,7 @@ class MiniUnicorn
   NUM_WORKERS = 4
   CHILD_PIDS = []
   SIGNAL_QUEUE = []
+  SELF_PIPE_R, SELF_PIPE_W = IO.pipe
 
   def initialize(port=8080)
     #socket(2)
@@ -27,39 +28,61 @@ class MiniUnicorn
     set_title
 
     loop do
+      ready = IO.select([SELF_PIPE_R]) #go to sleep until the pipe has something red to it
+      SELF_PIPE_R.read(1)
+
       case SIGNAL_QUEUE.shift
       when :INT, :QUIT, :TERM
         shutdown
+      end
     end
   end
 
+  #When a signal comes in put it in the queue so the main queue can pull it off
+  #Then write a byte to the pipe: this will wake up the sleeping call (line 32)
+  #So the pipe  now will be ready for data and can read the byte and consume it
+  #off the pipe so it doesn't show up next time on the loop.
+  #We are now good to shift off the signal queue because the only time the pipe (line 32)
+  #should get data is when a pending signal arrives, that's to say there is
+  #no more sleeping and running through the loop (line 30) endlessly wasting cycles
+  #basically it
+  #loads the app,
+  #spawn the workers,
+  #then go to sleep
+  #until the pipe gets data (line 32)
+  #when the signal arrives we put a little bit of data in the pipe to wake it up
+  #and then in processes the signal.
+
   def trap_signals
     [:INT, :QUIT, :TERM].each do |sig|
-      Signal.trap(sig) { SIGNAL_QUEUE << sig }
+      Signal.trap(sig) {
+        SIGNAL_QUEUE << sig
+        sleep 5
+        SELF_PIPE_W.write_nonblock('.')
+      }
     end
   end
 
   def shutdown
-    at_exit {
-      CHILD_PIDS.each do |cpid|
+    CHILD_PIDS.each do |cpid|
+      Process.waitpid(cpid, :WNOHANG)
+      Proces.kill[:INT, cpid]
+    end
+
+    # Once it sends the signal sleep the child processes to give them time to tear down
+    # and wait to see if the child processes are dead.
+    # If the child process to kill it's still alive returns immediately so it's non blocking
+    # then terminate the child process forcefully so it can exit and all child processes are tore down.
+
+    #sleep 10
+    CHILD_PIDS.each do |cpid|
+      begin
         Process.waitpid(cpid, :WNOHANG)
         Proces.kill[:INT, cpid]
+      rescue Errno::ECHILD
       end
-
-      # Once it sends the signal sleep the child processes to give them time to tear down
-      # and wait to see if the child processes are dead.
-      # If the child process to kill it's still alive returns immediately so it's non blocking
-      # then terminate the child process forcefully so it can exit and all child processes are tore down.
-
-      sleep 5
-      CHILD_PIDS.each do |cpid|
-        begin
-          Process.waitpid(cpid, :WNOHANG)
-          Proces.kill[:INT, cpid]
-        rescue Errno::ECHILD
-        end
-      end
-    }
+    end
+    #exit
   end
 
   def set_title
