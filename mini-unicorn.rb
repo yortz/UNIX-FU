@@ -11,14 +11,12 @@ class MiniUnicorn
   SELF_PIPE_R, SELF_PIPE_W = IO.pipe
 
   def initialize(port=8080)
-    #socket(2)
-    @listener = Socket.new(:INET, :STREAM)
-
-    #bind(2)
-    @listener.bind(Socket.sockaddr_in(port, '0.0.0.0'))
-
-    #listen(2)
-    @listener.listen(512)
+    if listener_fd = ENV['LISTENER_FD']
+      @listener = TCPServer.for_fd(listener_fd.to_i)
+    else
+      @listener = TCPServer.new(port)
+      @listener.listen(512)
+    end
   end
 
   def start
@@ -34,6 +32,8 @@ class MiniUnicorn
       case SIGNAL_QUEUE.shift
       when :INT, :QUIT, :TERM
         shutdown
+      when :USR2
+        reexec
       end
     end
   end
@@ -54,13 +54,22 @@ class MiniUnicorn
   #and then in processes the signal.
 
   def trap_signals
-    [:INT, :QUIT, :TERM].each do |sig|
+    [:INT, :QUIT, :TERM, :USR2].each do |sig|
       Signal.trap(sig) {
         SIGNAL_QUEUE << sig
         sleep 5
         SELF_PIPE_W.write_nonblock('.')
       }
     end
+  end
+
+  def reexec
+    fork {
+      $PROGRAM_NAME = "MiniUnicorn (NewMaster)"
+
+      ENV['LISTENER_FD'] = @listener.fileno.to_s
+      exec "ruby mini-unicorn.rb", { @listener.fileno => @listener }
+    }
   end
 
   def shutdown
