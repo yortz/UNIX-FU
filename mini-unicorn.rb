@@ -34,27 +34,33 @@ class MiniUnicorn
         shutdown
       when :USR2
         reexec
+      when :CHLD
+        # avoids zombie process
+        pid = Process.wait
+        if CHILD_PIDS.delete(pid)
+          spawn_worker
+        end
       end
     end
   end
 
-  #When a signal comes in put it in the queue so the main queue can pull it off
-  #Then write a byte to the pipe: this will wake up the sleeping call (line 32)
-  #So the pipe  now will be ready for data and can read the byte and consume it
-  #off the pipe so it doesn't show up next time on the loop.
-  #We are now good to shift off the signal queue because the only time the pipe (line 32)
-  #should get data is when a pending signal arrives, that's to say there is
-  #no more sleeping and running through the loop (line 30) endlessly wasting cycles
-  #basically it
-  #loads the app,
-  #spawn the workers,
-  #then go to sleep
-  #until the pipe gets data (line 32)
-  #when the signal arrives we put a little bit of data in the pipe to wake it up
-  #and then in processes the signal.
+  #  When a signal comes in put it in the queue so the main queue can pull it off
+  #  Then write a byte to the pipe: this will wake up the sleeping call (line 32)
+  #  So the pipe  now will be ready for data and can read the byte and consume it
+  #  off the pipe so it doesn't show up next time on the loop.
+  #  We are now good to shift off the signal queue because the only time the pipe (line 32)
+  #  should get data is when a pending signal arrives, that's to say there is
+  #  no more sleeping and running through the loop (line 30) endlessly wasting cycles
+  #  basically it
+  #  loads the app,
+  #  spawn the workers,
+  #  then go to sleep
+  #  until the pipe gets data (line 32)
+  #  when the signal arrives we put a little bit of data in the pipe to wake it up
+  #  and then in processes the signal.
 
   def trap_signals
-    [:INT, :QUIT, :TERM, :USR2].each do |sig|
+    [:INT, :QUIT, :TERM, :USR2, :CHLD].each do |sig|
       Signal.trap(sig) {
         SIGNAL_QUEUE << sig
         sleep 5
@@ -98,14 +104,26 @@ class MiniUnicorn
     $PROGRAM_NAME = "MiniUnicorn Master"
   end
 
+  # config
+  after_fork do
+     #ActiveRecord::Base.establish_connection
+     #Redis::Client.reconnect
+  end
+
+
   def spawn_workers
     NUM_WORKERS.times do |num|
-      CHILD_PIDS << fork {
-        $PROGRAM_NAME = "MiniUnicorn Worker #{num}"
-        trap_child_signals
-        worker_loop
-      }
+      spawn_worker(num)
     end
+  end
+
+  def spwan_worker(num)
+    CHILD_PIDS << fork {
+      after_fork #avoids issues due to load balancing between processes e.g.: db queries
+      $PROGRAM_NAME = "MiniUnicorn Worker #{num}"
+      trap_child_signals
+      worker_loop
+    }
   end
 
   def trap_child_signals
